@@ -7,8 +7,13 @@
 
     <script src="proxieddb.js"></script>
     <script>
+        proxiedDB('db1').builder(5).build({
+            user: "@id, firstname, age, firstname+age"
+        })
+            .then(result => console.log(result))
+            .catch(err => console.error(err))
         if (0) {
-            proxiedDB('db1').user.add({ firstname: 'jupp' })
+            proxiedDB('db1').user.add({ firstname: 'klara', age:20 })
                 .then(result => console.log(result))
                 .catch(err => console.error(err))
         }
@@ -20,9 +25,36 @@
                 .catch(err => console.error(err))
         }
 
+        if (0) {
+            proxiedDB('db1')
+                .user.where('firstname+age', proxiedDB.ge(['c', 5]), proxiedDB.ASC)
+                .then(result => console.log(result))
+                .catch(err => console.error(err))
+        }
+
+        if (0) {
+            proxiedDB('db1')
+                .user.where('firstname', proxiedDB.between('ber', 'klara'))
+                .then(result => console.log(result))
+                .catch(err => console.error(err))
+        }
+
+        if (0) {
+            proxiedDB('db1')
+                .user.query('firstname', proxiedDB.between('b', 'k'))
+                    .or('age', proxiedDB.gt(20))
+                    .or('age', proxiedDB.eq(21))
+                    .toArray()
+                .then(result => console.log(result))
+                .catch(err => console.error(err))
+        }
+
         if (1) {
             proxiedDB('db1')
-                .user.query('firstname', null, proxiedDB.asc/* proxiedDB.between(2, 5) */)
+                .user.query('firstname', proxiedDB.between('b', 'k'))
+                    .and('age', proxiedDB.lt(20))
+                    .and('age', proxiedDB.gt(9))
+                    .toArray()
                 .then(result => console.log(result))
                 .catch(err => console.error(err))
         }

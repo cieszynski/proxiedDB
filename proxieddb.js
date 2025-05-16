@@ -151,11 +151,12 @@ Object.defineProperty(globalThis, 'proxiedDB', {
 
                     put(obj, key) { return execute('put', obj, key); },
 
-                    query(indexName, keyrange, direction) {
+                    where(indexName, keyrange, direction) {
                         return new Promise((resolve, reject) => {
                             connect(dbName)
                                 .then(db => {
                                     if (Array.from(db.objectStoreNames).includes(storeName)) {
+                                        const result = []; // must be outside of 'request.onsuccess = ()'
                                         const request = db
                                             .transaction(storeName)
                                             .objectStore(storeName)
@@ -164,21 +165,104 @@ Object.defineProperty(globalThis, 'proxiedDB', {
                                         request.onerror = () => reject(request.error);
                                         request.onsuccess = () => {
                                             const cursor = request.result;
-                                            const result = [];
-
-                                            if(cursor) {
-                                                console.log(cursor.value);
+                                            if (cursor) {
                                                 result.push(cursor.value);
                                                 cursor.continue();
-
+                                            } else {
+                                                resolve(result);
                                             }
-                                            resolve(result);
                                         };
                                     } else reject(Error(`Store '${storeName}' not found`));
 
                                     db.close();
                                 })
                         });
+                    },
+                    query(indexName, keyrange) {
+                        // ensures unique entries
+                        const resultSet = new Set();
+
+                        const orArray = [{ indexName: indexName, keyrange: keyrange }];
+                        const andArray = [{ indexName: indexName, keyrange: keyrange }];
+
+                        return new class {
+
+                            and(indexName, keyrange) {
+                                console.assert(orArray.length <= 1)
+                                andArray.push({ indexName: indexName, keyrange: keyrange });
+                                return this;
+                            }
+
+                            or(indexName, keyrange) {
+                                console.assert(andArray.length <= 1)
+                                orArray.push({ indexName: indexName, keyrange: keyrange });
+                                return this;
+                            }
+
+                            toArray() {
+                                return new Promise((resolve, reject) => {
+                                    connect(dbName)
+                                        .then(db => {
+                                            if (Array.from(db.objectStoreNames).includes(storeName)) {
+                                                let ready = 0;
+                                                const done = () => {
+                                                    if (++ready === orArray.length) {
+                                                        resolve(Array.from(resultSet))
+                                                    }
+                                                }
+                                                const store = db
+                                                    .transaction(storeName)
+                                                    .objectStore(storeName)
+
+                                                if (andArray.length > 1) {
+                                                    const first = andArray.shift();
+                                                    const request = store
+                                                        .index(first.indexName)
+                                                        .openCursor(first.keyrange);
+                                                    request.onerror = () => reject(request.error);
+                                                    request.onsuccess = () => {
+                                                        const cursor = request.result;
+                                                        if (cursor) {
+
+                                                            // check more conditions
+                                                            // to fullfill every condition must passed
+                                                            if (andArray.every(entry => entry.keyrange.includes(
+                                                                cursor.value[entry.indexName]))
+                                                            ) {
+                                                                resultSet.add(cursor.value);
+                                                            }
+
+                                                            cursor.continue();
+                                                        } else {
+                                                            resolve(Array.from(resultSet))
+                                                        }
+                                                    }
+                                                }
+
+                                                if (orArray.length > 1) {
+                                                    orArray.forEach(entry => {
+                                                        const request = store
+                                                            .index(entry.indexName)
+                                                            .openCursor(entry.keyrange);
+                                                        request.onerror = () => reject(request.error);
+                                                        request.onsuccess = () => {
+                                                            const cursor = request.result;
+                                                            if (cursor) {
+                                                                resultSet.add(cursor.value);
+                                                                cursor.continue();
+                                                            } else {
+                                                                done();
+                                                            }
+                                                        };
+                                                    })
+                                                }
+                                            } else {
+                                                reject('not toArray')
+                                            }
+                                        })
+                                })
+                            }
+                        }
                     }
                 })
             }
@@ -202,9 +286,9 @@ Object.defineProperty(globalThis, 'proxiedDB', {
             }
             // static constants
             switch (property) {
-                case 'asc':
+                case 'ASC':
                     return 'next'
-                case 'desc':
+                case 'DESC':
                     return 'prev'
             }
         }
