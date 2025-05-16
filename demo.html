@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="de">
+
+<head>
+    <title>proxiedDB</title>
+    <meta charset="utf-8">
+
+    <script src="proxieddb.js"></script>
+    <script>
+        if (0) {
+            proxiedDB('db1').user.add({ firstname: 'jupp' })
+                .then(result => console.log(result))
+                .catch(err => console.error(err))
+        }
+
+        if (0) {
+            proxiedDB('db1')
+                .user.get(proxiedDB.between(2, 5))
+                .then(result => console.log(result))
+                .catch(err => console.error(err))
+        }
+
+        if (1) {
+            proxiedDB('db1')
+                .user.query('firstname', null, proxiedDB.asc/* proxiedDB.between(2, 5) */)
+                .then(result => console.log(result))
+                .catch(err => console.error(err))
+        }
+    </script>
+</head>
+
+<body>
+
+</body>
+
+</html>
