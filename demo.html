@@ -42,19 +42,33 @@
         if (0) {
             proxiedDB('db1')
                 .user.query('firstname', proxiedDB.between('b', 'k'))
-                    .or('age', proxiedDB.gt(20))
-                    .or('age', proxiedDB.eq(21))
+                    .or('age', proxiedDB.lt(21))
+                    .or('age', proxiedDB.eq(30))
                     .toArray()
+                .then(result => console.log(result))
+                .catch(err => console.error(err))
+        }
+
+        if (0) {
+            proxiedDB('db1')
+                .user.query('firstname', proxiedDB.between('b', 'c'))
+                    .and('age', proxiedDB.lt(20))
+                    .and('age', proxiedDB.gt(9))
+                    .toArray()
+                .then(result => console.log(result))
+                .catch(err => console.error(err))
+        }
+
+        if (0) {
+            proxiedDB('db1')
+                .user.and('firstname', proxiedDB.between('b', 'c'), 'age', proxiedDB.lt(20))
                 .then(result => console.log(result))
                 .catch(err => console.error(err))
         }
 
         if (1) {
             proxiedDB('db1')
-                .user.query('firstname', proxiedDB.between('b', 'k'))
-                    .and('age', proxiedDB.lt(20))
-                    .and('age', proxiedDB.gt(9))
-                    .toArray()
+                .user.or('firstname', proxiedDB.between('b', 'c'), 'age', proxiedDB.gt(20))
                 .then(result => console.log(result))
                 .catch(err => console.error(err))
         }
