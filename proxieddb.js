@@ -358,7 +358,50 @@ Object.defineProperty(globalThis, 'proxiedDB', {
                                     } // END while
                                 });
                         }); // END return new Promise
-                    } // END or(...arguments)
+                    }, // END or(...arguments)
+                    in(indexName, ...arguments) {
+                        console.assert(arguments.length);
+                        arguments.sort();
+
+                        let n = 0;
+                        const result = [];
+
+                        return new Promise((resolve, reject) => {
+
+                            const onsuccess = (event) => {
+                                const cursor = event.target.result;
+
+                                if (cursor) {
+                                    while (cursor.value[indexName] > arguments[n]) {
+                                        if (++n >= arguments.length) {
+                                            resolve(result);
+                                            return;
+                                        }
+                                    }
+
+                                    if (cursor.value[indexName] === arguments[n]) {
+                                        result.push(cursor.value);
+                                        cursor.continue();
+                                    } else {
+                                        cursor.continue(arguments[n]);
+                                    }
+                                } else {
+                                    resolve(result);
+                                }
+                            }
+
+                            connect(dbName)
+                                .then(db => {
+                                    const request = db
+                                        .transaction(storeName)
+                                        .objectStore(storeName)
+                                        .index(indexName)
+                                        .openCursor();
+                                    request.onerror = () => reject(request.error);
+                                    request.onsuccess = onsuccess;
+                                })
+                        }); // END return new Promise
+                    }
                 }); // END return Object.freeze
             } // END get(target, storeName, proxy)
         });

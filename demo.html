@@ -66,9 +66,17 @@
                 .catch(err => console.error(err))
         }
 
-        if (1) {
+        if (0) {
             proxiedDB('db1')
                 .user.or('firstname', proxiedDB.between('b', 'c'), 'age', proxiedDB.gt(20))
+                .then(result => console.log(result))
+                .catch(err => console.error(err))
+        }
+
+        if (1) {
+            proxiedDB('db1')
+                //.user.in('firstname', 'bernd', 'klara', 'jupp')
+                .user.in('age', 5, 10, 15, 20, 25, 30, 35)
                 .then(result => console.log(result))
                 .catch(err => console.error(err))
         }
