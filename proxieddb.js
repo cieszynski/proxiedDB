@@ -112,29 +112,30 @@ Object.defineProperty(globalThis, 'proxiedDB', {
                 });
 
                 const execute = (verb, ...args) => {
-                    return new Promise((resolve, reject) => {
-                        connect(dbName)
-                            .then(db => {
-                                if (Array.from(db.objectStoreNames).includes(storeName)) {
-                                    const request = db
-                                        .transaction(storeName, ['add', 'put', 'delete'].includes(verb)
-                                            ? 'readwrite'
-                                            : 'readonly')
-                                        .objectStore(storeName)
-                                    [verb](...args);
-                                    request.onerror = () => reject(request.error);
-                                    request.onsuccess = () => {
-                                        resolve(request.result);
-                                    };
-                                } else reject(Error(`Store '${storeName}' not found`));
 
-                                db.close();
-                            })
-                            .catch(err => reject(err));
-                    });
+                    return new Promise(async (resolve, reject) => {
+
+                        const db = await connect(dbName);
+
+                        if (Array.from(db.objectStoreNames).includes(storeName)) {
+                            const request = db
+                                .transaction(storeName, ['add', 'put', 'delete'].includes(verb)
+                                    ? 'readwrite'
+                                    : 'readonly')
+                                .objectStore(storeName)
+                            [verb](...args);
+                            request.onerror = () => reject(request.error);
+                            request.onsuccess = () => {
+                                resolve(request.result);
+                            };
+                        } else reject(Error(`Store '${storeName}' not found`));
+
+                        db.close();
+                    })
+                        .catch(err => reject(err));
                 }
 
-                return Object.freeze({
+                return self = Object.freeze({
                     add(obj, key) { return execute('add', obj, key); },
 
                     count(keyOrKeyRange) { return execute('count', keyOrKeyRange); },
@@ -152,125 +153,32 @@ Object.defineProperty(globalThis, 'proxiedDB', {
                     put(obj, key) { return execute('put', obj, key); },
 
                     where(indexName, keyRange, direction) {
-                        return new Promise((resolve, reject) => {
-                            connect(dbName)
-                                .then(db => {
-                                    if (Array.from(db.objectStoreNames).includes(storeName)) {
-                                        const result = []; // must be outside of 'request.onsuccess = ()'
-                                        const request = db
-                                            .transaction(storeName)
-                                            .objectStore(storeName)
-                                            .index(indexName)
-                                            .openCursor(keyRange, direction);
-                                        request.onerror = () => reject(request.error);
-                                        request.onsuccess = () => {
-                                            const cursor = request.result;
-                                            if (cursor) {
-                                                result.push(cursor.value);
-                                                cursor.continue();
-                                            } else {
-                                                resolve(result);
-                                            }
-                                        };
-                                    } else reject(Error(`Store '${storeName}' not found`));
+                        return new Promise(async (resolve, reject) => {
 
-                                    db.close();
-                                })
+                            const db = await connect(dbName);
+
+                            if (Array.from(db.objectStoreNames).includes(storeName)) {
+                                const result = []; // must be outside of 'request.onsuccess = ()'
+                                const request = db
+                                    .transaction(storeName)
+                                    .objectStore(storeName)
+                                    .index(indexName)
+                                    .openCursor(keyRange, direction);
+                                request.onerror = () => reject(request.error);
+                                request.onsuccess = () => {
+                                    const cursor = request.result;
+                                    if (cursor) {
+                                        result.push(cursor.value);
+                                        cursor.continue();
+                                    } else {
+                                        resolve(result);
+                                    }
+                                };
+                            } else reject(Error(`Store '${storeName}' not found`));
+
+                            db.close();
                         });
                     },
-                    query(indexName, keyRange) {
-                        // ensures unique entries
-                        const result = new class extends Array {
-                            push(obj) {
-                                // Objects are only stringified the same
-                                if (!this.some(entry => JSON.stringify(entry) === JSON.stringify(obj))) {
-                                    super.push(obj)
-                                }
-                            }
-                        }
-
-                        const orArray = [{ indexName: indexName, keyRange: keyRange }];
-                        const andArray = [{ indexName: indexName, keyRange: keyRange }];
-
-                        return new class {
-
-                            and(indexName, keyRange) {
-                                console.assert(orArray.length <= 1)
-                                andArray.push({ indexName: indexName, keyRange: keyRange });
-                                return this;
-                            }
-
-                            or(indexName, keyRange) {
-                                console.assert(andArray.length <= 1)
-                                orArray.push({ indexName: indexName, keyRange: keyRange });
-                                return this;
-                            }
-
-                            toArray() {
-                                return new Promise((resolve, reject) => {
-                                    connect(dbName)
-                                        .then(db => {
-                                            if (Array.from(db.objectStoreNames).includes(storeName)) {
-                                                let ready = 0;
-                                                const done = () => {
-                                                    if (++ready === orArray.length) {
-                                                        resolve(result)
-                                                    }
-                                                }
-                                                const store = db
-                                                    .transaction(storeName)
-                                                    .objectStore(storeName)
-
-                                                if (andArray.length > 1) {
-                                                    const first = andArray.shift();
-                                                    const request = store
-                                                        .index(first.indexName)
-                                                        .openCursor(first.keyRange);
-                                                    request.onerror = () => reject(request.error);
-                                                    request.onsuccess = () => {
-                                                        const cursor = request.result;
-                                                        if (cursor) {
-
-                                                            // check more conditions
-                                                            // to fullfill every condition must passed
-                                                            if (andArray.every(entry => entry.keyRange.includes(
-                                                                cursor.value[entry.indexName]))
-                                                            ) {
-                                                                result.push(cursor.value)
-                                                            }
-
-                                                            cursor.continue();
-                                                        } else {
-                                                            resolve(result)
-                                                        }
-                                                    }
-                                                }
-
-                                                if (orArray.length > 1) {
-                                                    orArray.forEach(entry => {
-                                                        const request = store
-                                                            .index(entry.indexName)
-                                                            .openCursor(entry.keyRange);
-                                                        request.onerror = () => reject(request.error);
-                                                        request.onsuccess = () => {
-                                                            const cursor = request.result;
-                                                            if (cursor) {
-                                                                result.push(cursor.value)
-                                                                cursor.continue();
-                                                            } else {
-                                                                done();
-                                                            }
-                                                        };
-                                                    })
-                                                }
-                                            } else {
-                                                reject('not toArray')
-                                            }
-                                        })
-                                });
-                            } // END toArray
-                        } // END return new class
-                    }, // END query
                     and(...arguments) {
                         console.assert(arguments.length && !(arguments.length % 2));
 
@@ -278,8 +186,17 @@ Object.defineProperty(globalThis, 'proxiedDB', {
                         const indexName = arguments.shift();
                         const keyRange = arguments.shift();
 
-                        return new Promise((resolve, reject) => {
-                            const onsuccess = (event) => {
+                        return new Promise(async (resolve, reject) => {
+
+                            const db = await connect(dbName);
+
+                            const request = db
+                                .transaction(storeName)
+                                .objectStore(storeName)
+                                .index(indexName)
+                                .openCursor(keyRange);
+                            request.onerror = () => reject(request.error);
+                            request.onsuccess = (event) => {
                                 const cursor = event.target.result;
 
                                 if (cursor) {
@@ -300,20 +217,9 @@ Object.defineProperty(globalThis, 'proxiedDB', {
 
                                     cursor.continue();
                                 } else {
-                                    resolve(result)
+                                    resolve(result);
                                 }
                             }
-
-                            connect(dbName)
-                                .then(db => {
-                                    const request = db
-                                        .transaction(storeName)
-                                        .objectStore(storeName)
-                                        .index(indexName)
-                                        .openCursor(keyRange);
-                                    request.onerror = () => reject(request.error);
-                                    request.onsuccess = onsuccess;
-                                });
                         }); // END return new Promise
                     }, // END and(...arguments)
                     or(...arguments) {
@@ -329,78 +235,114 @@ Object.defineProperty(globalThis, 'proxiedDB', {
                             }
                         }
 
-                        return new Promise((resolve, reject) => {
+                        return new Promise(async (resolve, reject) => {
+                            const db = await connect(dbName);
+                            const store = db
+                                .transaction(storeName)
+                                .objectStore(storeName);
 
-                            connect(dbName)
-                                .then(db => {
-                                    const store = db
-                                        .transaction(storeName)
-                                        .objectStore(storeName);
-
-                                    while (arguments.length) {
-                                        const indexName = arguments.shift();
-                                        const keyRange = arguments.shift();
-                                        const request = store
-                                            .index(indexName)
-                                            .openCursor(keyRange);
-                                        request.onerror = () => reject(request.error);
-                                        request.onsuccess = () => {
-                                            const cursor = request.result;
-                                            if (cursor) {
-                                                result.push(cursor.value)
-                                                cursor.continue();
-                                            } else {
-                                                if (!arguments.length) {
-                                                    resolve(result)
-                                                }
-                                            }
-                                        };
-                                    } // END while
-                                });
+                            while (arguments.length) {
+                                const indexName = arguments.shift();
+                                const keyRange = arguments.shift();
+                                const request = store
+                                    .index(indexName)
+                                    .openCursor(keyRange);
+                                request.onerror = () => reject(request.error);
+                                request.onsuccess = () => {
+                                    const cursor = request.result;
+                                    if (cursor) {
+                                        result.push(cursor.value)
+                                        cursor.continue();
+                                    } else {
+                                        if (!arguments.length) {
+                                            resolve(result);
+                                            db.close();
+                                        }
+                                    }
+                                };
+                            } // END while
                         }); // END return new Promise
                     }, // END or(...arguments)
-                    in(indexName, ...arguments) {
-                        console.assert(arguments.length);
-                        arguments.sort();
+                    ignoreCase(indexName, str, startsWith = false) {
+                        console.assert(typeof str === 'string', 'ignoreCase: argument[1] no string');
+                        console.assert(typeof indexName === 'string', 'ignoreCase: argument[0] no string');
 
                         let n = 0;
                         const result = [];
+                        const permutations = [];
 
-                        return new Promise((resolve, reject) => {
+                        // Find all lowercase and uppercase
+                        // combinations of a string
+                        const permute = (str, tmp = '') => {
+                            if (str.length == 0) {
 
-                            const onsuccess = (event) => {
+                                // sort from ABC -> abc
+                                permutations.unshift(tmp);
+                            } else {
+                                permute(str.substring(1), tmp + str[0].toLowerCase());
+                                if (isNaN(str[0])) {
+                                    permute(str.substring(1), tmp + str[0].toUpperCase());
+                                }
+                            }
+                        }
+
+                        permute(str);
+
+                        return new Promise(async (resolve, reject) => {
+
+                            const db = await connect(dbName);
+                            const request = db
+                                .transaction(storeName)
+                                .objectStore(storeName)
+                                .index(indexName)
+                                .openCursor();
+                            request.onerror = () => reject(request.error);
+                            request.onsuccess = (event) => {
                                 const cursor = event.target.result;
 
                                 if (cursor) {
-                                    while (cursor.value[indexName] > arguments[n]) {
-                                        if (++n >= arguments.length) {
+
+                                    const value = cursor.value[indexName];
+                                    const length = startsWith
+                                        ? permutations[n].length
+                                        : value.length;
+
+                                    // find permutation > cursor.value[indexName]
+                                    while (value.substring(0, length) > permutations[n]) {
+
+                                        // there are no more permutations
+                                        if (++n >= permutations.length) {
                                             resolve(result);
                                             return;
                                         }
                                     }
 
-                                    if (cursor.value[indexName] === arguments[n]) {
+                                    if ((startsWith && value.indexOf(permutations[n]) === 0)
+                                        || value === permutations[n]) {
+
                                         result.push(cursor.value);
                                         cursor.continue();
                                     } else {
-                                        cursor.continue(arguments[n]);
+                                        cursor.continue(permutations[n]);
                                     }
                                 } else {
                                     resolve(result);
                                 }
                             }
-
-                            connect(dbName)
-                                .then(db => {
-                                    const request = db
-                                        .transaction(storeName)
-                                        .objectStore(storeName)
-                                        .index(indexName)
-                                        .openCursor();
-                                    request.onerror = () => reject(request.error);
-                                    request.onsuccess = onsuccess;
-                                })
                         }); // END return new Promise
+                    }, // END ignoreCase
+                    // Syntactic sugar:
+                    startsWith(indexName, str, direction) {
+                        console.assert(typeof str === 'string', 'startsWith: argument[1] no string');
+                        console.assert(typeof indexName === 'string', 'startsWith: argument[0] no string');
+
+                        return self.where(indexName, proxiedDB.between(str, str + '|', true, true), direction);
+                    },
+                    startsWithIgnoreCase(indexName, str) {
+                        console.assert(typeof str === 'string', 'startsWithIgnoreCase: argument[1] no string');
+                        console.assert(typeof indexName === 'string', 'startsWithIgnoreCase: argument[0] no string');
+
+                        return self.ignoreCase(indexName, str, true);
                     }
                 }); // END return Object.freeze
             } // END get(target, storeName, proxy)
@@ -425,9 +367,13 @@ Object.defineProperty(globalThis, 'proxiedDB', {
             // static constants
             switch (property) {
                 case 'ASC':
-                    return 'next'
+                    return 'next';
+                case 'ASCUNIQUE':
+                    return 'nextunique';
                 case 'DESC':
-                    return 'prev'
+                    return 'prev';
+                case 'DESCUNIQUE':
+                    return 'prevunique';
             }
         }
     })
