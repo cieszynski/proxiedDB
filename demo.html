@@ -60,7 +60,7 @@
                 .catch(err => console.error(err))
         }
 
-        if (0) {
+        if (1) {
             proxiedDB('db1')
                 .user.ignoreCase('firstname', 'bernd')
                 .then(result => console.log(result))
@@ -69,11 +69,11 @@
 
         if (0) { // startsWith equivalent
             proxiedDB('db1')
-                .user.and('firstname', proxiedDB.between('B', 'b|', true, true))
+                .user.where('firstname', proxiedDB.startsWith('Be'))
                 .then(result => console.log(result))
                 .catch(err => console.error(err))
         }
-
+/* 
         if (0) {
             proxiedDB('db1')
                 .user.startsWith('firstname', 'j', proxiedDB.DESC)
@@ -83,10 +83,10 @@
 
         if (1) {
             proxiedDB('db1')
-                .user.startsWithIgnoreCase('firstname', 'B')
+                .user.startsWithIgnoreCase('firstname', 'b')
                 .then(result => console.log(result))
                 .catch(err => console.error(err))
-        }
+        } */
     </script>
 </head>
 

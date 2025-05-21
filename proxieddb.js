@@ -13,14 +13,11 @@ Object.defineProperty(globalThis, 'proxiedDB', {
                     build: (obj) => {
 
                         return new Promise((resolve, reject) => {
+                            let upgraded = false;
 
                             const request = indexedDB.open(dbName, version);
                             request.onerror = () => { reject(request.error); }
                             request.onblocked = () => { reject(request.error); }
-                            request.onsuccess = () => {
-                                request.result.close();
-                                resolve('OK');
-                            }
                             request.onupgradeneeded = (event) => {
                                 const db = request.result;
 
@@ -69,7 +66,12 @@ Object.defineProperty(globalThis, 'proxiedDB', {
 
                                         console.debug("index '%s' created", indexName);
                                     })
+                                    upgraded = true;
                                 });
+                            }
+                            request.onsuccess = () => {
+                                request.result.close();
+                                resolve(upgraded);
                             }
                         });
                     }
@@ -110,6 +112,30 @@ Object.defineProperty(globalThis, 'proxiedDB', {
                             }
                         })
                 });
+
+
+                // Find all lowercase and uppercase
+                // combinations of a string
+                const permutation = (permutable) => {
+
+                    const arr = [];
+                    const permute = (str, tmp = '') => {
+                        if (str.length == 0) {
+
+                            arr.push(tmp);
+                        } else {
+                            permute(str.substring(1), tmp + str[0].toLowerCase());
+                            if (isNaN(str[0])) {
+                                permute(str.substring(1), tmp + str[0].toUpperCase());
+                            }
+                        }
+                    }
+
+                    permute(permutable);
+
+                    // sort from ABC -> abc
+                    return arr.sort();
+                }
 
                 const execute = (verb, ...args) => {
 
@@ -194,7 +220,7 @@ Object.defineProperty(globalThis, 'proxiedDB', {
                                 .transaction(storeName)
                                 .objectStore(storeName)
                                 .index(indexName)
-                                .openCursor(keyRange);
+                                .openCursor(keyRange, 'prev');
                             request.onerror = () => reject(request.error);
                             request.onsuccess = (event) => {
                                 const cursor = event.target.result;
@@ -269,24 +295,7 @@ Object.defineProperty(globalThis, 'proxiedDB', {
 
                         let n = 0;
                         const result = [];
-                        const permutations = [];
-
-                        // Find all lowercase and uppercase
-                        // combinations of a string
-                        const permute = (str, tmp = '') => {
-                            if (str.length == 0) {
-
-                                // sort from ABC -> abc
-                                permutations.unshift(tmp);
-                            } else {
-                                permute(str.substring(1), tmp + str[0].toLowerCase());
-                                if (isNaN(str[0])) {
-                                    permute(str.substring(1), tmp + str[0].toUpperCase());
-                                }
-                            }
-                        }
-
-                        permute(str);
+                        const permutations = permutation(str);
 
                         return new Promise(async (resolve, reject) => {
 
@@ -304,15 +313,16 @@ Object.defineProperty(globalThis, 'proxiedDB', {
 
                                     const value = cursor.value[indexName];
                                     const length = startsWith
-                                        ? permutations[n].length
+                                        ? permutations[0].length
                                         : value.length;
 
-                                    // find permutation > cursor.value[indexName]
+                                    // find cursor.value[indexName] > permutation
                                     while (value.substring(0, length) > permutations[n]) {
 
                                         // there are no more permutations
                                         if (++n >= permutations.length) {
                                             resolve(result);
+                                            db.close();
                                             return;
                                         }
                                     }
@@ -327,23 +337,11 @@ Object.defineProperty(globalThis, 'proxiedDB', {
                                     }
                                 } else {
                                     resolve(result);
+                                    db.close();
                                 }
                             }
                         }); // END return new Promise
                     }, // END ignoreCase
-                    // Syntactic sugar:
-                    startsWith(indexName, str, direction) {
-                        console.assert(typeof str === 'string', 'startsWith: argument[1] no string');
-                        console.assert(typeof indexName === 'string', 'startsWith: argument[0] no string');
-
-                        return self.where(indexName, proxiedDB.between(str, str + '|', true, true), direction);
-                    },
-                    startsWithIgnoreCase(indexName, str) {
-                        console.assert(typeof str === 'string', 'startsWithIgnoreCase: argument[1] no string');
-                        console.assert(typeof indexName === 'string', 'startsWithIgnoreCase: argument[0] no string');
-
-                        return self.ignoreCase(indexName, str, true);
-                    }
                 }); // END return Object.freeze
             } // END get(target, storeName, proxy)
         });
@@ -363,6 +361,8 @@ Object.defineProperty(globalThis, 'proxiedDB', {
                     return (x) => IDBKeyRange.lowerBound(x, true);
                 case 'between':
                     return (x, y, bx, by) => IDBKeyRange.bound(x, y, bx, by);
+                case 'startsWith':
+                    return (s) => IDBKeyRange.bound(s, s + '\uffff', true, true);
             }
             // static constants
             switch (property) {
