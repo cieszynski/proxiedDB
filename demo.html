@@ -13,7 +13,13 @@
             .then(result => console.log(result))
             .catch(err => console.error(err))
         if (0) {
-            proxiedDB('db1').user.add({ firstname: 'jupp', age:50 })
+            proxiedDB('db1').user.add(new Blob()/* { firstname: 'Bob', age:20 } */)
+                .then(result => console.log(result))
+                .catch(err => console.error(err))
+        }
+        if (0) {
+            proxiedDB('db1')
+                .user.count()
                 .then(result => console.log(result))
                 .catch(err => console.error(err))
         }
@@ -55,13 +61,6 @@
 
         if (0) {
             proxiedDB('db1')
-                .user.or('firstname', proxiedDB.between('b', 'c'), 'age', proxiedDB.gt(20))
-                .then(result => console.log(result))
-                .catch(err => console.error(err))
-        }
-
-        if (1) {
-            proxiedDB('db1')
                 .user.ignoreCase('firstname', 'bernd')
                 .then(result => console.log(result))
                 .catch(err => console.error(err))
@@ -73,20 +72,38 @@
                 .then(result => console.log(result))
                 .catch(err => console.error(err))
         }
-/* 
-        if (0) {
+
+        if (1) { 
             proxiedDB('db1')
-                .user.startsWith('firstname', 'j', proxiedDB.DESC)
+                .user.updateOr(
+                    'firstname', proxiedDB.startsWith('xu'),
+                    'firstname',  proxiedDB.startsWith('Bo'),
+                    'age',  proxiedDB.gt(20),
+                {firstname: 'Boby'})
                 .then(result => console.log(result))
                 .catch(err => console.error(err))
         }
 
-        if (1) {
+        if (0) { 
             proxiedDB('db1')
-                .user.startsWithIgnoreCase('firstname', 'b')
+                .user.queryOr(
+                    'firstname', proxiedDB.startsWith('ju'),
+                    'firstname',  proxiedDB.startsWith('pe'),
+                    'age',  proxiedDB.gt(0))
                 .then(result => console.log(result))
                 .catch(err => console.error(err))
-        } */
+        }
+
+        if (0) { 
+            proxiedDB('db1')
+                .user.deleteOr(
+                    'firstname', proxiedDB.startsWith('Ju'),
+                    'firstname',  proxiedDB.startsWith('pee'),
+                    'age',  proxiedDB.ge(50))
+                .then(result => console.log(result))
+                .catch(err => console.error(err))
+        }
+
     </script>
 </head>
 

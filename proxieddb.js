@@ -87,9 +87,10 @@ Object.defineProperty(globalThis, 'proxiedDB', {
                                 const request = indexedDB.deleteDatabase(dbName);
                                 request.onerror = () => reject(request.error);
                                 request.onsuccess = () => resolve(request.result);
-                            } else {
-                                reject(Error(`Database '${dbName}' not found`));
-                            }
+                            } else reject(new DOMException(
+                                `database "${dbName}" was not found`,
+                                "NotFoundError"
+                            ));
                         });
                 });
             }
@@ -103,16 +104,30 @@ Object.defineProperty(globalThis, 'proxiedDB', {
 
                     indexedDB.databases()
                         .then(arr => {
+                            // prevents the accidental creation of a new database
                             if (arr.find(obj => obj.name === dbName)) {
                                 const request = indexedDB.open(dbName);
                                 request.onerror = () => reject(request.error);
-                                request.onsuccess = () => resolve(request.result);
+                                request.onsuccess = () => {
+
+                                    const db = request.result;
+
+                                    // check, if the store exists
+                                    if (!Array.from(db.objectStoreNames).includes(storeName)) {
+                                        reject(new DOMException(
+                                            `object store "${storeName}" was not found`,
+                                            "NotFoundError"
+                                        ));
+                                    } else resolve(db);
+                                };
                             } else {
-                                reject(Error(`Database '${dbName}' not found`));
+                                reject(new DOMException(
+                                    `database "${dbName}" was not found`,
+                                    "NotFoundError"
+                                ));
                             }
                         })
                 });
-
 
                 // Find all lowercase and uppercase
                 // combinations of a string
@@ -140,10 +155,9 @@ Object.defineProperty(globalThis, 'proxiedDB', {
                 const execute = (verb, ...args) => {
 
                     return new Promise(async (resolve, reject) => {
+                        try {
+                            const db = await connect(dbName);
 
-                        const db = await connect(dbName);
-
-                        if (Array.from(db.objectStoreNames).includes(storeName)) {
                             const request = db
                                 .transaction(storeName, ['add', 'put', 'delete'].includes(verb)
                                     ? 'readwrite'
@@ -154,11 +168,144 @@ Object.defineProperty(globalThis, 'proxiedDB', {
                             request.onsuccess = () => {
                                 resolve(request.result);
                             };
-                        } else reject(Error(`Store '${storeName}' not found`));
 
-                        db.close();
-                    })
-                        .catch(err => reject(err));
+                            db.close();
+                        } catch (err) { reject(err); }
+                    });
+                }
+
+                // executeOr('delete', indexName, keyRange [, indexName, keyRange, ...])
+                // executeOr('query', indexName, keyRange [, indexName, keyRange, ...])
+                // executeOr('update', indexName, keyRange [, indexName, keyRange, ...], payLoad)
+                const executeOr = (verb, ...args) => {
+                    console.assert(['delete', 'update', 'query'].includes(verb));
+                    console.assert(args.length && (
+                        (['delete', 'query'].includes(verb) && ((args.length % 2) === 0)) ||
+                        (['update'].includes(verb) && (((args.length + 1) % 2) === 0))
+                    ));
+
+                    // ensures unique entries
+                    const unique = new class extends Array {
+                        push(obj) {
+                            // Objects are only stringified the same, Set() won't work
+                            if (!this.some(entry => JSON.stringify(entry) === JSON.stringify(obj))) {
+                                super.push(obj);
+                            }
+                        }
+                    }
+
+                    const results = {
+                        delete: [0],
+                        update: unique,
+                        query: unique
+                    }
+
+                    const result = results[verb];
+
+                    // on update: last argument is the payload
+                    const payLoad = ('update' === verb)
+                        ? args.pop()
+                        : undefined;
+
+                    const executeOr_delete = (cursor) => {
+                        cursor
+                            .delete()
+                            // increment number of deleted records
+                            .onsuccess = () => { result[0]++; }
+                    }
+
+                    const executeOr_query = (cursor) => {
+                        // add the found record
+                        result.push(cursor.value)
+                    }
+
+                    const executeOr_update = (cursor) => {
+                        let data = payLoad;
+
+                        switch (true) {
+                            case (cursor.value instanceof String):
+                            case (cursor.value instanceof Date):
+                            case (cursor.value instanceof Array):
+                            case (cursor.value instanceof File):
+                            case (cursor.value instanceof Blob):
+                            case (cursor.value instanceof ImageData):
+                                break;
+                            case (cursor.value instanceof Object):
+                                // merge current record with new data
+                                data = Object.assign(cursor.value, payLoad);
+                                break;
+                        }
+
+                        cursor
+                            .update(data)
+                            .onsuccess = (event) => {
+                                // add the key of the updated record
+                                result.push(event.target.result);
+                            };
+                    }
+
+                    return new Promise(async (resolve, reject) => {
+                        try {
+                            const db = await connect(dbName);
+
+                            const transaction = db
+                                .transaction(storeName, ['update', 'delete'].includes(verb)
+                                    ? 'readwrite'
+                                    : 'readonly');
+                            transaction.onerror = () => reject(request.error);
+                            transaction.oncomplete = () => {
+                                resolve(result);
+                                db.close();
+                            }
+
+                            const store = transaction.objectStore(storeName);
+
+                            while (args.length) {
+                                const indexName = args.shift();
+                                const keyRange = args.shift();
+
+                                if (!Array.from(store.indexNames).includes(indexName)) {
+                                    return reject(new DOMException(
+                                        `object store "${storeName}" index "${indexName}" was not found`,
+                                        "NotFoundError"
+                                    ));
+                                }
+
+                                const request = store
+                                    .index(indexName)
+                                    .openCursor(keyRange);
+                                request.onsuccess = () => {
+                                    const cursor = request.result;
+
+                                    if (cursor) {
+                                        switch (verb) {
+                                            case 'delete':
+                                                executeOr_delete(cursor);
+                                                break;
+
+                                            case 'update':
+                                                executeOr_update(cursor);
+                                                break;
+
+                                            case 'query':
+                                                executeOr_query(cursor);
+                                                break;
+
+                                            default:
+                                                return reject(new DOMException(
+                                                    `verb "${verb}" was not supported`,
+                                                    "NotSupportedError"
+                                                ));
+                                        }
+
+                                        cursor.continue();
+                                    }
+                                };
+                            } // END while
+                        } catch (err) {
+                            reject(err);
+                        }
+                    }); // END return new Promise
                 }
 
                 return self = Object.freeze({
@@ -180,10 +327,9 @@ Object.defineProperty(globalThis, 'proxiedDB', {
 
                     where(indexName, keyRange, direction) {
                         return new Promise(async (resolve, reject) => {
+                            try {
+                                const db = await connect(dbName);
 
-                            const db = await connect(dbName);
-
-                            if (Array.from(db.objectStoreNames).includes(storeName)) {
                                 const result = []; // must be outside of 'request.onsuccess = ()'
                                 const request = db
                                     .transaction(storeName)
@@ -200,148 +346,153 @@ Object.defineProperty(globalThis, 'proxiedDB', {
                                         resolve(result);
                                     }
                                 };
-                            } else reject(Error(`Store '${storeName}' not found`));
 
-                            db.close();
+                                db.close();
+
+                            } catch (err) {
+                                reject(err);
+                            }
                         });
                     },
-                    and(...arguments) {
-                        console.assert(arguments.length && !(arguments.length % 2));
+                    updateOr(...args) { return executeOr('update', ...args) },
+                    deleteOr(...args) { return executeOr('delete', ...args) },
+                    queryOr(...args) { return executeOr('query', ...args) },
+                    and(...args) {
+                        console.assert(args.length && !(args.length % 2));
 
                         const result = [];
-                        const indexName = arguments.shift();
-                        const keyRange = arguments.shift();
+                        const indexName = args.shift();
+                        const keyRange = args.shift();
 
                         return new Promise(async (resolve, reject) => {
+                            try {
+                                const db = await connect(dbName);
 
-                            const db = await connect(dbName);
-
-                            const request = db
-                                .transaction(storeName)
-                                .objectStore(storeName)
-                                .index(indexName)
-                                .openCursor(keyRange, 'prev');
-                            request.onerror = () => reject(request.error);
-                            request.onsuccess = (event) => {
-                                const cursor = event.target.result;
-
-                                if (cursor) {
-
-                                    // check more conditions
-                                    // to fullfill every condition must passed
-                                    while (arguments.length) {
-                                        const indexName = arguments.shift();
-                                        const keyRange = arguments.shift();
-
-                                        if (!keyRange.includes(cursor.value[indexName])) {
-                                            cursor.continue();
-                                            return;
-                                        }
-                                    }
-
-                                    result.push(cursor.value);
-
-                                    cursor.continue();
-                                } else {
-                                    resolve(result);
-                                }
-                            }
-                        }); // END return new Promise
-                    }, // END and(...arguments)
-                    or(...arguments) {
-                        console.assert(arguments.length && !(arguments.length % 2));
-
-                        // ensures unique entries
-                        const result = new class extends Array {
-                            push(obj) {
-                                // Objects are only stringified the same
-                                if (!this.some(entry => JSON.stringify(entry) === JSON.stringify(obj))) {
-                                    super.push(obj);
-                                }
-                            }
-                        }
-
-                        return new Promise(async (resolve, reject) => {
-                            const db = await connect(dbName);
-                            const store = db
-                                .transaction(storeName)
-                                .objectStore(storeName);
-
-                            while (arguments.length) {
-                                const indexName = arguments.shift();
-                                const keyRange = arguments.shift();
-                                const request = store
+                                const request = db
+                                    .transaction(storeName)
+                                    .objectStore(storeName)
                                     .index(indexName)
                                     .openCursor(keyRange);
                                 request.onerror = () => reject(request.error);
-                                request.onsuccess = () => {
-                                    const cursor = request.result;
+                                request.onsuccess = (event) => {
+                                    const cursor = event.target.result;
+
                                     if (cursor) {
-                                        result.push(cursor.value)
+
+                                        // check more conditions
+                                        // to fullfill every condition must passed
+                                        while (args.length) {
+                                            const indexName = args.shift();
+                                            const keyRange = args.shift();
+
+                                            if (!keyRange.includes(cursor.value[indexName])) {
+                                                cursor.continue();
+                                                return;
+                                            }
+                                        }
+
+                                        result.push(cursor.value);
+
                                         cursor.continue();
                                     } else {
-                                        if (!arguments.length) {
-                                            resolve(result);
-                                            db.close();
-                                        }
+                                        resolve(result);
                                     }
-                                };
-                            } // END while
+                                }
+                            } catch (err) {
+                                reject(err);
+                            }
                         }); // END return new Promise
-                    }, // END or(...arguments)
+                    }, // END and(...args)
                     ignoreCase(indexName, str, startsWith = false) {
-                        console.assert(typeof str === 'string', 'ignoreCase: argument[1] no string');
-                        console.assert(typeof indexName === 'string', 'ignoreCase: argument[0] no string');
+                        console.assert(typeof str === 'string', 'ignoreCase: args[1] no string');
+                        console.assert(typeof indexName === 'string', 'ignoreCase: args[0] no string');
 
                         let n = 0;
                         const result = [];
                         const permutations = permutation(str);
 
                         return new Promise(async (resolve, reject) => {
+                            try {
+                                const db = await connect(dbName);
 
-                            const db = await connect(dbName);
-                            const request = db
-                                .transaction(storeName)
-                                .objectStore(storeName)
-                                .index(indexName)
-                                .openCursor();
-                            request.onerror = () => reject(request.error);
-                            request.onsuccess = (event) => {
-                                const cursor = event.target.result;
+                                const request = db
+                                    .transaction(storeName)
+                                    .objectStore(storeName)
+                                    .index(indexName)
+                                    .openCursor();
+                                request.onerror = () => reject(request.error);
+                                request.onsuccess = (event) => {
+                                    const cursor = event.target.result;
 
-                                if (cursor) {
+                                    if (cursor) {
 
-                                    const value = cursor.value[indexName];
-                                    const length = startsWith
-                                        ? permutations[0].length
-                                        : value.length;
+                                        const value = cursor.value[indexName];
+                                        const length = startsWith
+                                            ? permutations[0].length
+                                            : value.length;
 
-                                    // find cursor.value[indexName] > permutation
-                                    while (value.substring(0, length) > permutations[n]) {
+                                        // find cursor.value[indexName] > permutation
+                                        while (value.substring(0, length) > permutations[n]) {
 
-                                        // there are no more permutations
-                                        if (++n >= permutations.length) {
-                                            resolve(result);
-                                            db.close();
-                                            return;
+                                            // there are no more permutations
+                                            if (++n >= permutations.length) {
+                                                resolve(result);
+                                                db.close();
+                                                return;
+                                            }
                                         }
-                                    }
 
-                                    if ((startsWith && value.indexOf(permutations[n]) === 0)
-                                        || value === permutations[n]) {
+                                        if ((startsWith && value.indexOf(permutations[n]) === 0)
+                                            || value === permutations[n]) {
 
-                                        result.push(cursor.value);
-                                        cursor.continue();
+                                            result.push(cursor.value);
+                                            cursor.continue();
+                                        } else {
+                                            cursor.continue(permutations[n]);
+                                        }
                                     } else {
-                                        cursor.continue(permutations[n]);
+                                        resolve(result);
+                                        db.close();
                                     }
-                                } else {
-                                    resolve(result);
-                                    db.close();
                                 }
+                            } catch (err) {
+                                reject(err);
                             }
                         }); // END return new Promise
                     }, // END ignoreCase
+                    deletes(indexName, keyOrKeyRange) {
+
+                        let result = 0;
+
+                        return new Promise(async (resolve, reject) => {
+                            try {
+                                const db = await connect(dbName);
+
+                                const request = db
+                                    .transaction(storeName, 'readwrite')
+                                    .objectStore(storeName)
+                                    .index(indexName)
+                                    .openCursor(keyOrKeyRange);
+                                request.onerror = () => reject(request.error);
+                                request.onsuccess = (event) => {
+                                    const cursor = event.target.result;
+
+                                    if (cursor) {
+                                        cursor
+                                            .delete()
+                                            .onsuccess = () => { result++; }
+
+                                        cursor.continue();
+                                    } else {
+                                        resolve(result);
+                                        db.close();
+                                    }
+                                }
+                            } catch (err) {
+                                reject(err);
+                            }
+                        }); // END return new Promise
+                    }
                 }); // END return Object.freeze
             } // END get(target, storeName, proxy)
         });
