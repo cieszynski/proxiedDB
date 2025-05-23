@@ -11,12 +11,23 @@
             user: "@id, firstname, age, firstname+age"
         })
             .then(result => console.log(result))
-            .catch(err => console.error(err))
+            .catch(err => console.error(err));
+
         if (0) {
-            proxiedDB('db1').user.add(new Blob()/* { firstname: 'Bob', age:20 } */)
-                .then(result => console.log(result))
-                .catch(err => console.error(err))
+
+            [
+                { firstname: 'Jupp', age: 20 },
+                { firstname: 'jupp', age: 30 },
+                { firstname: 'Klara', age: 10 },
+                { firstname: 'Bob', age: 40 },
+                { firstname: 'Benny', age: 50 }
+            ].forEach(item => {
+                proxiedDB('db1').user.add(item)
+                    .then(result => console.log(result))
+                    .catch(err => console.error(err))
+            })
         }
+
         if (0) {
             proxiedDB('db1')
                 .user.count()
@@ -73,35 +84,94 @@
                 .catch(err => console.error(err))
         }
 
-        if (1) { 
+        if (0) {
             proxiedDB('db1')
                 .user.updateOr(
                     'firstname', proxiedDB.startsWith('xu'),
-                    'firstname',  proxiedDB.startsWith('Bs'),
-                    'age',  proxiedDB.ge(35),
-                {a:2})
+                    'firstname', proxiedDB.startsWith('Bs'),
+                    'age', proxiedDB.ge(35),
+                    { a: 2 })
                 .then(result => console.log(result))
                 .catch(err => console.error(err))
         }
 
-        if (0) { 
+        if (0) {
             proxiedDB('db1')
                 .user.queryOr(
                     'firstname', proxiedDB.startsWith('ju'),
-                    'firstname',  proxiedDB.startsWith('pe'),
-                    'age',  proxiedDB.gt(0))
+                    'firstname', proxiedDB.startsWith('Be'),
+                    'age', proxiedDB.gt(30))
                 .then(result => console.log(result))
                 .catch(err => console.error(err))
         }
 
-        if (0) { 
+        if (0) {
             proxiedDB('db1')
                 .user.deleteOr(
                     'firstname', proxiedDB.startsWith('Ju'),
-                    'firstname',  proxiedDB.startsWith('pee'),
-                    'age',  proxiedDB.ge(50))
+                    'firstname', proxiedDB.startsWith('pee'),
+                    'age', proxiedDB.ge(50))
                 .then(result => console.log(result))
                 .catch(err => console.error(err))
+        }
+
+        if (1) {
+            proxiedDB('db1')
+                .user.queryAnd(
+                    'firstname', proxiedDB.startsWith('AbcD'),
+                    //'age', proxiedDB.gt(730)//,
+                    'age', proxiedDB.eq(880)
+                    )
+                .then(result => console.log(result))
+                .catch(err => console.error(err))
+        }
+
+        if (0) {
+            proxiedDB('db1')
+                .user.updateAnd(
+                    'firstname', proxiedDB.startsWith('B'),
+                    'age', proxiedDB.gt(0),
+                    { b: 3 })
+                .then(result => console.log(result))
+                .catch(err => console.error(err))
+        }
+
+        if (0) {
+            proxiedDB('db1')
+                .user.deleteAnd(
+                    'firstname', proxiedDB.startsWith('ju'),
+                    'age', proxiedDB.gt(0))
+                .then(result => console.log(result))
+                .catch(err => console.error(err))
+        }
+
+        if (0) {
+            proxiedDB('db1')
+                .user.insert([
+                    { firstname: 'Jupp', age: 21 },
+                    { firstname: 'Jupp', age: 22 },
+                    { firstname: 'Jupp', age: 23 },
+                ])
+                .then(result => console.log(result))
+                .catch(err => console.error(err))
+        }
+
+        if (0) {
+            let a = proxiedDB('db1')
+                .user.permutation('abcdefghijk').reduce((pre, cur, idx) => {
+                    pre.push({
+                        firstname: cur,
+                        age: idx
+                    })
+                    return pre;
+                }, [])
+            proxiedDB('db1')
+                .user.insert(a)
+                .then(result => console.log(result))
+                .catch(err => console.error(err))
+/*                 let a = proxiedDB('db1')
+                .user.permutation('abcdefghijk')
+                console.log(a) */
         }
 
     </script>

@@ -174,15 +174,87 @@ Object.defineProperty(globalThis, 'proxiedDB', {
                     });
                 }
 
-                // executeOr('delete', indexName, keyRange [, indexName, keyRange, ...])
-                // executeOr('query', indexName, keyRange [, indexName, keyRange, ...])
-                // executeOr('update', indexName, keyRange [, indexName, keyRange, ...], payLoad)
-                const executeOr = (verb, ...args) => {
-                    console.assert(['delete', 'update', 'query'].includes(verb));
-                    console.assert(args.length && (
-                        (['delete', 'query'].includes(verb) && ((args.length % 2) === 0)) ||
-                        (['update'].includes(verb) && (((args.length + 1) % 2) === 0))
-                    ));
+                const execute_cursor_query = (cursor, result) => {
+                    result.push(cursor.value);
+                }
+
+                const execute_cursor_update = (cursor, result, payload) => {
+                    // only {} records reach this, so we can merge
+                    cursor
+                        .update(Object.assign(cursor.value, payload))
+                        .onsuccess = (event) => {
+                            // add the key of the updated record
+                            result.push(event.target.result);
+                        };
+                }
+
+                const execute_cursor_delete = (cursor, result) => {
+                    cursor
+                        .delete()
+                        // increment number of deleted records
+                        .onsuccess = () => { result[0]++; }
+                }
+
+                const execute_cursor_or = (event, verb, payload, result) => {
+                    const cursor = event.target.result;
+
+                    if (cursor) {
+                        switch (verb) {
+                            case 'query_or':
+                                execute_cursor_query(cursor, result);
+                                break;
+                            case 'update_or':
+                                execute_cursor_update(cursor, result, payload);
+                                break;
+                            case 'delete_or':
+                                execute_cursor_delete(cursor, result);
+                                break;
+
+                            default:
+                                return reject(new DOMException(
+                                    `verb "${verb}" was not supported`,
+                                    "NotSupportedError"
+                                ));
+                        }
+
+                        cursor.continue();
+                    }
+                }
+
+                const execute_cursor_and = (event, verb, args, payload, result) => {
+                    const cursor = event.target.result;
+
+                    if (cursor) {
+
+                        // check more conditions
+                        // to fullfill every condition must passed
+                        for (let n = 0; n < args.length; n += 2) {
+                            const indexName = args[n];
+                            const keyRange = args[n + 1];
+
+                            if (!keyRange.includes(cursor.value[indexName])) {
+                                cursor.continue();
+                                return;
+                            }
+                        }
+
+                        switch (verb) {
+                            case 'query_and':
+                                execute_cursor_query(cursor, result);
+                                break;
+                            case 'update_and':
+                                execute_cursor_update(cursor, result, payload);
+                                break;
+                            case 'delete_and':
+                                execute_cursor_delete(cursor, result);
+                                break;
+                        }
+
+                        cursor.continue();
+                    }
+                }
+
+                const execute_transaction = (verb, ...args) => {
 
                     // ensures unique entries
                     const unique = new class extends Array {
@@ -194,47 +266,29 @@ Object.defineProperty(globalThis, 'proxiedDB', {
                         }
                     }
 
-                    const results = {
-                        delete: [0],
-                        update: unique,
-                        query: unique
+                    const resultTypes = {
+                        query_and: [],
+                        update_and: [],
+                        delete_and: [0],
+                        query_or: unique,
+                        update_or: unique,
+                        delete_or: [0],
+                        insert: [0]
                     }
 
-                    const result = results[verb];
+                    const result = resultTypes[verb];
 
-                    // updateOr: last argument is the payload
-                    const payLoad = ('update' === verb)
+                    // update_[and|or]: last argument is the payload
+                    const payload = /^(update|insert)/.test(verb)
                         ? args.pop()
                         : undefined;
-
-                    const executeOr_delete = (cursor) => {
-                        cursor
-                            .delete()
-                            // increment number of deleted records
-                            .onsuccess = () => { result[0]++; }
-                    }
-
-                    const executeOr_query = (cursor) => {
-                        // add the found record
-                        result.push(cursor.value)
-                    }
-
-                    const executeOr_update = (cursor) => {
-                        // only {} records reach this, so we can merge
-                        cursor
-                            .update(Object.assign(cursor.value, payLoad))
-                            .onsuccess = (event) => {
-                                // add the key of the updated record
-                                result.push(event.target.result);
-                            };
-                    }
 
                     return new Promise(async (resolve, reject) => {
                         try {
                             const db = await connect(dbName);
 
                             const transaction = db
-                                .transaction(storeName, ['update', 'delete'].includes(verb)
+                                .transaction(storeName, /^(update|delete|insert)/.test(verb)
                                     ? 'readwrite'
                                     : 'readonly');
                             transaction.onerror = () => reject(request.error);
@@ -245,53 +299,48 @@ Object.defineProperty(globalThis, 'proxiedDB', {
 
                             const store = transaction.objectStore(storeName);
 
-                            while (args.length) {
-                                const indexName = args.shift();
-                                const keyRange = args.shift();
+                            switch (verb) {
+                                case 'insert':
+                                    payload.forEach(entry => {
+                                        store.add(entry);
+                                        result[0]++;
+                                    })
+                                    break;
+                                case 'query_or':
+                                case 'update_or':
+                                case 'delete_or':
+                                    while (args.length) {
+                                        const indexName = args.shift();
+                                        const keyRange = args.shift();
 
-                                if (!Array.from(store.indexNames).includes(indexName)) {
-                                    return reject(new DOMException(
-                                        `object store "${storeName}" index "${indexName}" was not found`,
-                                        "NotFoundError"
-                                    ));
-                                }
-
-                                const request = store
-                                    .index(indexName)
-                                    .openCursor(keyRange);
-                                request.onsuccess = () => {
-                                    const cursor = request.result;
-
-                                    if (cursor) {
-                                        switch (verb) {
-                                            case 'delete':
-                                                executeOr_delete(cursor);
-                                                break;
-
-                                            case 'update':
-                                                executeOr_update(cursor);
-                                                break;
-
-                                            case 'query':
-                                                executeOr_query(cursor);
-                                                break;
-
-                                            default:
-                                                return reject(new DOMException(
-                                                    `verb "${verb}" was not supported`,
-                                                    "NotSupportedError"
-                                                ));
+                                        const request = store
+                                            .index(indexName)
+                                            .openCursor(keyRange);
+                                        request.onsuccess = (event) => {
+                                            execute_cursor_or(event, verb, payload, result);
                                         }
-
-                                        cursor.continue();
                                     }
-                                };
-                            } // END while
+                                    break;
+                                case 'query_and':
+                                case 'update_and':
+                                case 'delete_and':
+                                    const indexName = args.shift();
+                                    const keyRange = args.shift();
+
+                                    const request = store
+                                        .index(indexName)
+                                        .openCursor(keyRange);
+                                    request.onsuccess = (event) => {
+                                        execute_cursor_and(event, verb, args, payload, result);
+                                    }
+                                    break;
+                            }
+
                         } catch (err) {
                             reject(err);
                         }
-                    }); // END return new Promise
-                }
+                    });
+                } // END executeAnd
 
                 return self = Object.freeze({
                     add(obj, key) { return execute('add', obj, key); },
@@ -339,55 +388,13 @@ Object.defineProperty(globalThis, 'proxiedDB', {
                             }
                         });
                     },
-                    updateOr(...args) { return executeOr('update', ...args) },
-                    deleteOr(...args) { return executeOr('delete', ...args) },
-                    queryOr(...args) { return executeOr('query', ...args) },
-                    and(...args) {
-                        console.assert(args.length && !(args.length % 2));
-
-                        const result = [];
-                        const indexName = args.shift();
-                        const keyRange = args.shift();
-
-                        return new Promise(async (resolve, reject) => {
-                            try {
-                                const db = await connect(dbName);
-
-                                const request = db
-                                    .transaction(storeName)
-                                    .objectStore(storeName)
-                                    .index(indexName)
-                                    .openCursor(keyRange);
-                                request.onerror = () => reject(request.error);
-                                request.onsuccess = (event) => {
-                                    const cursor = event.target.result;
-
-                                    if (cursor) {
-
-                                        // check more conditions
-                                        // to fullfill every condition must passed
-                                        while (args.length) {
-                                            const indexName = args.shift();
-                                            const keyRange = args.shift();
-
-                                            if (!keyRange.includes(cursor.value[indexName])) {
-                                                cursor.continue();
-                                                return;
-                                            }
-                                        }
-
-                                        result.push(cursor.value);
-
-                                        cursor.continue();
-                                    } else {
-                                        resolve(result);
-                                    }
-                                }
-                            } catch (err) {
-                                reject(err);
-                            }
-                        }); // END return new Promise
-                    }, // END and(...args)
+                    queryOr(...args) { return execute_transaction('query_or', ...args) },
+                    updateOr(...args) { return execute_transaction('update_or', ...args) },
+                    deleteOr(...args) { return execute_transaction('delete_or', ...args) },
+                    queryAnd(...args) { return execute_transaction('query_and', ...args) },
+                    updateAnd(...args) { return execute_transaction('update_and', ...args) },
+                    deleteAnd(...args) { return execute_transaction('delete_and', ...args) },
+                    insert(payload) { return execute_transaction('insert', payload) },
                     ignoreCase(indexName, str, startsWith = false) {
                         console.assert(typeof str === 'string', 'ignoreCase: args[1] no string');
                         console.assert(typeof indexName === 'string', 'ignoreCase: args[0] no string');
@@ -445,39 +452,7 @@ Object.defineProperty(globalThis, 'proxiedDB', {
                             }
                         }); // END return new Promise
                     }, // END ignoreCase
-                    deletes(indexName, keyOrKeyRange) {
-
-                        let result = 0;
-
-                        return new Promise(async (resolve, reject) => {
-                            try {
-                                const db = await connect(dbName);
-
-                                const request = db
-                                    .transaction(storeName, 'readwrite')
-                                    .objectStore(storeName)
-                                    .index(indexName)
-                                    .openCursor(keyOrKeyRange);
-                                request.onerror = () => reject(request.error);
-                                request.onsuccess = (event) => {
-                                    const cursor = event.target.result;
-
-                                    if (cursor) {
-                                        cursor
-                                            .delete()
-                                            .onsuccess = () => { result++; }
-
-                                        cursor.continue();
-                                    } else {
-                                        resolve(result);
-                                        db.close();
-                                    }
-                                }
-                            } catch (err) {
-                                reject(err);
-                            }
-                        }); // END return new Promise
-                    }
+                    permutation(str) { return permutation(str) }
                 }); // END return Object.freeze
             } // END get(target, storeName, proxy)
         });
