@@ -77,9 +77,9 @@
             proxiedDB('db1')
                 .user.updateOr(
                     'firstname', proxiedDB.startsWith('xu'),
-                    'firstname',  proxiedDB.startsWith('Bo'),
-                    'age',  proxiedDB.gt(20),
-                {firstname: 'Boby'})
+                    'firstname',  proxiedDB.startsWith('Bs'),
+                    'age',  proxiedDB.ge(35),
+                {a:2})
                 .then(result => console.log(result))
                 .catch(err => console.error(err))
         }

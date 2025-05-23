@@ -202,7 +202,7 @@ Object.defineProperty(globalThis, 'proxiedDB', {
 
                     const result = results[verb];
 
-                    // on update: last argument is the payload
+                    // updateOr: last argument is the payload
                     const payLoad = ('update' === verb)
                         ? args.pop()
                         : undefined;
@@ -220,24 +220,9 @@ Object.defineProperty(globalThis, 'proxiedDB', {
                     }
 
                     const executeOr_update = (cursor) => {
-                        let data = payLoad;
-
-                        switch (true) {
-                            case (cursor.value instanceof String):
-                            case (cursor.value instanceof Date):
-                            case (cursor.value instanceof Array):
-                            case (cursor.value instanceof File):
-                            case (cursor.value instanceof Blob):
-                            case (cursor.value instanceof ImageData):
-                                break;
-                            case (cursor.value instanceof Object):
-                                // merge current record with new data
-                                data = Object.assign(cursor.value, payLoad);
-                                break;
-                        }
-
+                        // only {} records reach this, so we can merge
                         cursor
-                            .update(data)
+                            .update(Object.assign(cursor.value, payLoad))
                             .onsuccess = (event) => {
                                 // add the key of the updated record
                                 result.push(event.target.result);
