@@ -30,9 +30,9 @@ Object.defineProperty(globalThis, 'proxiedDB', {
 
                                     [keypath, ...indexes] = definition.split(/\s*(?:,)\s*/);
 
-                                    const store = db.createObjectStore(
-                                        dbName, {
-                                        keyPath: keypath.replace(/[\+@]/, ''),
+                                    const store = db.createObjectStore(dbName, {
+                                        // if keyPath.length is 0 return undefined
+                                        keyPath: keypath.replace(/[\+@]/, '') || undefined,
                                         autoIncrement: /^[\+@]/.test(keypath)
                                     });
 
@@ -158,18 +158,20 @@ Object.defineProperty(globalThis, 'proxiedDB', {
                         try {
                             const db = await connect(dbName);
 
-                            const request = db
-                                .transaction(storeName, ['add', 'put', 'delete'].includes(verb)
+                            const transaction = db
+                                .transaction(storeName, /^(add|put|delete)$/.test(verb)
                                     ? 'readwrite'
-                                    : 'readonly')
-                                .objectStore(storeName)
-                            [verb](...args);
-                            request.onerror = () => reject(request.error);
-                            request.onsuccess = () => {
-                                resolve(request.result);
-                            };
+                                    : 'readonly');
+                            transaction.onerror = () => {
+                                reject(transaction.error);
+                                db.close();
+                            }
 
-                            db.close();
+                            const store = transaction.objectStore(storeName);
+                            store[verb](...args).onsuccess = (event) => {
+                                resolve(event.target.result);
+                                db.close();
+                            };
                         } catch (err) { reject(err); }
                     });
                 }
@@ -291,7 +293,10 @@ Object.defineProperty(globalThis, 'proxiedDB', {
                                 .transaction(storeName, /^(update|delete|insert)/.test(verb)
                                     ? 'readwrite'
                                     : 'readonly');
-                            transaction.onerror = () => reject(request.error);
+                            transaction.onerror = () => {
+                                reject(transaction.error);
+                                db.close();
+                            }
                             transaction.oncomplete = () => {
                                 resolve(result);
                                 db.close();
@@ -369,7 +374,10 @@ Object.defineProperty(globalThis, 'proxiedDB', {
 
                                 const transaction = db
                                     .transaction(storeName);
-                                transaction.onerror = () => reject(request.error);
+                                transaction.onerror = () => {
+                                    reject(transaction.error);
+                                    db.close();
+                                }
                                 transaction.oncomplete = () => {
                                     resolve(result);
                                     db.close();

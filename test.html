@@ -107,7 +107,7 @@
 
                 console.timeEnd(`${testName} time`);
                 console.log('%s: %s record(s) found', testName, result.length)
-                
+
                 return result.length === n;
             } catch (err) {
                 console.error(err);
@@ -135,10 +135,10 @@
                 console.time(`${testName} time`);
                 const result = await proxiedDB(dbName)
                     .user.deleteOr(...args);
-                    
+
                 console.timeEnd(`${testName} time`);
                 console.log('%s: %s record(s) removed', testName, result[0])
-                
+
                 return result[0] === n;
             } catch (err) {
                 console.error(err);
@@ -207,7 +207,7 @@
                 'age', proxiedDB.between(1000, 2000),
                 'firstname', proxiedDB.eq('abcdefgHIJKLMN'), { a: 1234567890 }
             )) console.error('updateOr 3 failed');
-            
+
             if (!await test_query_and(dbName, 'queryAnd 1', 1,
                 'firstname', proxiedDB.eq('abcdefgHIJKLMN')
             )) console.error('queryAnd 1 failed');
@@ -247,11 +247,74 @@
 
             console.timeEnd('test1');
         }
+
+        const test2 = async () => {
+            const dbName = await createdb({
+                withoutKey: ",firstname, lastname",
+                withKey: "a,firstname, lastname",
+                withKeyAutoIncrement: "@b,firstname, lastname"
+            });
+
+            try {
+                await proxiedDB(dbName).withoutKey.add({
+                    firstname: 'Albert', lastname: 'Einstein'
+                }, 1);
+
+                await proxiedDB(dbName).withoutKey.add({
+                    firstname: 'Isaac', lastname: 'Newton'
+                }, 2);
+
+
+                await proxiedDB(dbName).withKey.add({
+                    firstname: 'Albert', lastname: 'Einstein', a: 'a1'
+                });
+
+                await proxiedDB(dbName).withKey.add({
+                    firstname: 'Isaac', lastname: 'Newton', a: 'a2'
+                });
+
+                await proxiedDB(dbName).withKeyAutoIncrement.add({
+                    firstname: 'Albert', lastname: 'Einstein', b: 'b1'
+                });
+
+                await proxiedDB(dbName).withKeyAutoIncrement.add({
+                    firstname: 'Isaac', lastname: 'Newton'
+                });
+
+                // get
+                proxiedDB(dbName).withoutKey.get(proxiedDB.gt(1)).then(r => console.log(r));
+                proxiedDB(dbName).withKey.get('a1').then(r => console.log(r));
+                proxiedDB(dbName).withKeyAutoIncrement.get('b1').then(r => console.log(r));
+
+                // count
+                proxiedDB(dbName).withoutKey.count(proxiedDB.gt(0)).then(r => console.log(r));
+                proxiedDB(dbName).withKey.count('a1').then(r => console.log(r));
+                proxiedDB(dbName).withKeyAutoIncrement.count('b1').then(r => console.log(r));
+
+                // getKey
+                proxiedDB(dbName).withoutKey.getKey(proxiedDB.gt(0)).then(r => console.log(r));
+                proxiedDB(dbName).withKey.getKey('a1').then(r => console.log(r));
+                proxiedDB(dbName).withKeyAutoIncrement.getKey('b1').then(r => console.log(r));
+
+                // getAll
+                proxiedDB(dbName).withoutKey.getAll(proxiedDB.gt(0)).then(r => console.log(r));
+                proxiedDB(dbName).withKey.getAll('a1').then(r => console.log(r));
+                proxiedDB(dbName).withKeyAutoIncrement.getAll('b1').then(r => console.log(r));
+
+                // put
+                proxiedDB(dbName).withoutKey.put({firstname: 'Emma'}, 1).then(r => console.log(r));
+                proxiedDB(dbName).withKey.put({firstname: 'Emma', a: 'a1'}).then(r => console.log(r));
+                proxiedDB(dbName).withKeyAutoIncrement.put({firstname: 'Emma', b: 'b1'}).then(r => console.log(r));
+
+                if (!removedb(dbName)) console.error('removedb failed');
+            } catch (err) { console.error(err) }
+        }
     </script>
 </head>
 
 <body>
     <button onclick="test1()">test1</button>
+    <button onclick="test2()">test2</button>
 </body>
 
 </html>
