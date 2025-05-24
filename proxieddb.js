@@ -278,7 +278,7 @@ Object.defineProperty(globalThis, 'proxiedDB', {
 
                     const result = resultTypes[verb];
 
-                    // update_[and|or]: last argument is the payload
+                    // update_[and|or]|insert: last argument is payload
                     const payload = /^(update|insert)/.test(verb)
                         ? args.pop()
                         : undefined;
@@ -342,7 +342,7 @@ Object.defineProperty(globalThis, 'proxiedDB', {
                     });
                 } // END executeAnd
 
-                return self = Object.freeze({
+                return Object.freeze({
                     add(obj, key) { return execute('add', obj, key); },
 
                     count(keyOrKeyRange) { return execute('count', keyOrKeyRange); },
@@ -359,25 +359,35 @@ Object.defineProperty(globalThis, 'proxiedDB', {
 
                     put(obj, key) { return execute('put', obj, key); },
 
-                    where(indexName, keyRange, direction) {
+                    where(indexName, keyRange, limit = 0, direction = 'next') {
+
+                        const result = [];
+
                         return new Promise(async (resolve, reject) => {
                             try {
                                 const db = await connect(dbName);
 
-                                const result = []; // must be outside of 'request.onsuccess = ()'
-                                const request = db
-                                    .transaction(storeName)
-                                    .objectStore(storeName)
-                                    .index(indexName)
+                                const transaction = db
+                                    .transaction(storeName);
+                                transaction.onerror = () => reject(request.error);
+                                transaction.oncomplete = () => {
+                                    resolve(result);
+                                    db.close();
+                                }
+
+                                const store = transaction.objectStore(storeName);
+
+                                const request = store.index(indexName)
                                     .openCursor(keyRange, direction);
-                                request.onerror = () => reject(request.error);
                                 request.onsuccess = () => {
                                     const cursor = request.result;
+
                                     if (cursor) {
                                         result.push(cursor.value);
-                                        cursor.continue();
-                                    } else {
-                                        resolve(result);
+
+                                        if (!(limit && result.length >= limit)) {
+                                            cursor.continue();
+                                        }
                                     }
                                 };
 
@@ -394,7 +404,7 @@ Object.defineProperty(globalThis, 'proxiedDB', {
                     queryAnd(...args) { return execute_transaction('query_and', ...args) },
                     updateAnd(...args) { return execute_transaction('update_and', ...args) },
                     deleteAnd(...args) { return execute_transaction('delete_and', ...args) },
-                    insert(payload) { return execute_transaction('insert', payload) },
+                    insert(arrOfObjects) { return execute_transaction('insert', arrOfObjects) },
                     ignoreCase(indexName, str, startsWith = false) {
                         console.assert(typeof str === 'string', 'ignoreCase: args[1] no string');
                         console.assert(typeof indexName === 'string', 'ignoreCase: args[0] no string');
@@ -452,7 +462,6 @@ Object.defineProperty(globalThis, 'proxiedDB', {
                             }
                         }); // END return new Promise
                     }, // END ignoreCase
-                    permutation(str) { return permutation(str) }
                 }); // END return Object.freeze
             } // END get(target, storeName, proxy)
         });

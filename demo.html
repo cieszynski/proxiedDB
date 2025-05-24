@@ -77,9 +77,9 @@
                 .catch(err => console.error(err))
         }
 
-        if (0) { // startsWith equivalent
+        if (1) { // startsWith equivalent
             proxiedDB('db1')
-                .user.where('firstname', proxiedDB.startsWith('Be'))
+                .user.where('firstname', proxiedDB.startsWith('abc'), 10, 'prev')
                 .then(result => console.log(result))
                 .catch(err => console.error(err))
         }
@@ -115,7 +115,7 @@
                 .catch(err => console.error(err))
         }
 
-        if (1) {
+        if (0) {
             proxiedDB('db1')
                 .user.queryAnd(
                     'firstname', proxiedDB.startsWith('AbcD'),
@@ -154,24 +154,6 @@
                 ])
                 .then(result => console.log(result))
                 .catch(err => console.error(err))
-        }
-
-        if (0) {
-            let a = proxiedDB('db1')
-                .user.permutation('abcdefghijk').reduce((pre, cur, idx) => {
-                    pre.push({
-                        firstname: cur,
-                        age: idx
-                    })
-                    return pre;
-                }, [])
-            proxiedDB('db1')
-                .user.insert(a)
-                .then(result => console.log(result))
-                .catch(err => console.error(err))
-/*                 let a = proxiedDB('db1')
-                .user.permutation('abcdefghijk')
-                console.log(a) */
         }
 
     </script>

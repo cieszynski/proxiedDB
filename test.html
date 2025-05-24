@@ -1,0 +1,257 @@
+<!DOCTYPE html>
+<html lang="de">
+
+<head>
+    <title>testpage</title>
+    <meta charset="utf-8">
+
+    <script src="proxieddb.js"></script>
+    <script>
+        // Find all lowercase and uppercase
+        // combinations of a string
+        const permutation = (permutable) => {
+
+            const arr = [];
+            const permute = (str, tmp = '') => {
+                if (str.length == 0) {
+
+                    arr.push(tmp);
+                } else {
+                    permute(str.substring(1), tmp + str[0].toLowerCase());
+                    if (isNaN(str[0])) {
+                        permute(str.substring(1), tmp + str[0].toUpperCase());
+                    }
+                }
+            }
+
+            permute(permutable);
+
+            // sort from ABC -> abc
+            return arr.sort();
+        }
+
+        const createdb = async (schema) => {
+            try {
+                const dbName = crypto.randomUUID();
+
+                let db = await proxiedDB(dbName).builder(1).build(schema);
+                return dbName;
+            } catch (err) {
+                console.error(err);
+                return null;
+            }
+        }
+
+        const removedb = async (dbName) => {
+            try {
+                await proxiedDB(dbName).delete();
+                return true;
+            } catch (err) {
+                console.error(err);
+                return false;
+            }
+        }
+
+        const test_query_and = async (dbName, testName, n, ...args) => {
+            try {
+                console.time(`${testName} time`);
+                const result = await proxiedDB(dbName)
+                    .user.queryAnd(...args);
+
+                console.timeEnd(`${testName} time`);
+                console.log('%s: %s record(s) found', testName, result.length)
+                //console.log(result)
+                return result.length === n;
+            } catch (err) {
+                console.error(err);
+                return false;
+            }
+        }
+
+        const test_delete_and = async (dbName, testName, n, ...args) => {
+            try {
+                console.time(`${testName} time`);
+                const result = await proxiedDB(dbName)
+                    .user.deleteAnd(...args);
+
+                console.timeEnd(`${testName} time`);
+                console.log('%s: %s record(s) removed', testName, result[0])
+
+                return result[0] === n;
+            } catch (err) {
+                console.error(err);
+                return false;
+            }
+        }
+
+        const test_update_and = async (dbName, testName, n, ...args) => {
+            try {
+                console.time(`${testName} time`);
+                const result = await proxiedDB(dbName)
+                    .user.updateAnd(...args);
+
+                console.timeEnd(`${testName} time`);
+                console.log('%s: %s record(s) updated', testName, result.length)
+                return result.length === n;
+            } catch (err) {
+                console.error(err);
+                return false;
+            }
+        }
+
+        const test_query_or = async (dbName, testName, n, ...args) => {
+            try {
+                console.time(`${testName} time`);
+                const result = await proxiedDB(dbName)
+                    .user.queryOr(...args);
+
+                console.timeEnd(`${testName} time`);
+                console.log('%s: %s record(s) found', testName, result.length)
+                
+                return result.length === n;
+            } catch (err) {
+                console.error(err);
+                return false;
+            }
+        }
+
+        const test_update_or = async (dbName, testName, n, ...args) => {
+            try {
+                console.time(`${testName} time`);
+                const result = await proxiedDB(dbName)
+                    .user.updateOr(...args);
+
+                console.timeEnd(`${testName} time`);
+                console.log('%s: %s record(s) updated', testName, result.length)
+                return result.length === n;
+            } catch (err) {
+                console.error(err);
+                return false;
+            }
+        }
+
+        const test_delete_or = async (dbName, testName, n, ...args) => {
+            try {
+                console.time(`${testName} time`);
+                const result = await proxiedDB(dbName)
+                    .user.deleteOr(...args);
+                    
+                console.timeEnd(`${testName} time`);
+                console.log('%s: %s record(s) removed', testName, result[0])
+                
+                return result[0] === n;
+            } catch (err) {
+                console.error(err);
+                return false;
+            }
+        }
+
+        const test_insert = async (dbName, str) => {
+            try {
+                const data = permutation(str).map((entry, idx, arr) => Object({ firstname: entry, age: idx }));
+                console.log("insert-started");
+
+                console.time("insert time");
+                const result = await proxiedDB(dbName)
+                    .user.insert(data);
+
+                console.timeEnd("insert time");
+                console.log("insert-finished with %d of %s entries", result[0], Math.pow(2, str.length));
+
+                return (result[0] === Math.pow(2, str.length));
+            } catch (err) {
+                console.error(err);
+                return false;
+            }
+        }
+
+        const test1 = async () => {
+            console.time('test1')
+            const schema = {
+                user: "@id, firstname, age, firstname+age"
+            }
+
+            const dbName = await createdb(schema);
+
+            if (!dbName) { console.error('createdb failed'); return; }
+
+            if (!await test_insert(dbName, 'abcdefghijklmn')) console.error('insert failed');
+
+
+            // test_*_or
+            if (!await test_query_or(dbName, 'queryOr 1a', 1,
+                'firstname', proxiedDB.eq('abcdefgHIJKLMN')
+            )) console.error('queryOr 0 failed');
+
+            if (!await test_query_or(dbName, 'queryOr 1b', 1024,
+                'firstname', proxiedDB.startsWith('aBcD')
+            )) console.error('queryOr 1 failed');
+
+            if (!await test_query_or(dbName, 'queryOr 2', 2025,
+                'firstname', proxiedDB.startsWith('aBcD'),
+                'age', proxiedDB.between(1000, 2000)
+            )) console.error('queryOr 2 failed');
+
+            if (!await test_query_or(dbName, 'queryOr 3', 2026,
+                'firstname', proxiedDB.startsWith('aBcD'),
+                'age', proxiedDB.between(1000, 2000),
+                'firstname', proxiedDB.eq('abcdefgHIJKLMN'),
+            )) console.error('queryOr 3 failed');
+
+            if (!await test_update_or(dbName, 'updateOr 1', 1,
+                'firstname', proxiedDB.eq('abcdefgHIJKLMN'), { a: 1234567890 }
+            )) console.error('updateOr 0 failed');
+
+            if (!await test_update_or(dbName, 'updateOr 3', 2026,
+                'firstname', proxiedDB.startsWith('aBcD'),
+                'age', proxiedDB.between(1000, 2000),
+                'firstname', proxiedDB.eq('abcdefgHIJKLMN'), { a: 1234567890 }
+            )) console.error('updateOr 3 failed');
+            
+            if (!await test_query_and(dbName, 'queryAnd 1', 1,
+                'firstname', proxiedDB.eq('abcdefgHIJKLMN')
+            )) console.error('queryAnd 1 failed');
+
+            if (!await test_query_and(dbName, 'queryAnd 2', 761,
+                'firstname', proxiedDB.startsWith('aBcD'),
+                'age', proxiedDB.between(10000, 11000)
+            )) console.error('queryAnd 2 failed');
+
+            if (!await test_update_and(dbName, 'updateAnd 2', 261,
+                'firstname', proxiedDB.startsWith('aBcD'),
+                'age', proxiedDB.between(10000, 10500), { a: 1234567890 }
+            )) console.error('updateAnd 2 failed');
+
+            if (!await test_delete_or(dbName, 'deleteOr 1', 1,
+                'firstname', proxiedDB.eq('abcdefgHIJKLMN')
+            )) console.error('queryOr 0 failed');
+
+            if (!await test_delete_or(dbName, 'deleteOr 2', 2025,
+                'firstname', proxiedDB.startsWith('aBcD'),
+                'age', proxiedDB.between(1000, 2000)
+            )) console.error('queryOr 2 failed');
+
+            if (!await test_delete_or(dbName, 'deleteOr 3', 1761,
+                'firstname', proxiedDB.startsWith('AbCd'),
+                'age', proxiedDB.between(11000, 12000),
+                'firstname', proxiedDB.eq('abcdefgHIJKLMN'),
+            )) console.error('queryOr 3 failed');
+
+            if (!await test_delete_and(dbName, 'deleteAnd 2', 383,
+                'firstname', proxiedDB.startsWith('abcd'),
+                'age', proxiedDB.between(16000, 20500)
+            )) console.error('deleteAnd 2 failed');
+
+            if (!removedb(dbName)) console.error('removedb failed');
+
+
+            console.timeEnd('test1');
+        }
+    </script>
+</head>
+
+<body>
+    <button onclick="test1()">test1</button>
+</body>
+
+</html>
